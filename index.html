@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>星際拼圖配對</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #05061a;
+    --panel: rgba(18, 24, 60, 0.78);
+    --border: rgba(140, 170, 255, 0.35);
+    --text: #f4f6ff;
+    --muted: #c3cbef;
+    --accent: #ffd166;
+    --good: #3ddc97;
+    --bad: #ff6b6b;
+    --cell: min(150px, calc((100vw - 96px) / 5));
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 70% 15%, #1b1f5c 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    font-size: 22px;
+    line-height: 1.5;
+    overflow-x: hidden;
+    user-select: none; -webkit-user-select: none;
+  }
+  #stars { position: fixed; inset: 0; z-index: 0; }
+  .planet { position: fixed; border-radius: 50%; z-index: 0; pointer-events: none; }
+  .planet.p1 {
+    width: 240px; height: 240px; right: -80px; bottom: -60px;
+    background: radial-gradient(circle at 35% 35%, #ffb36b, #d4582a 60%, #6e2111);
+    box-shadow: 0 0 80px rgba(255, 140, 70, 0.35);
+  }
+  .planet.p2 {
+    width: 80px; height: 80px; left: 3%; top: 10%;
+    background: radial-gradient(circle at 35% 35%, #9fe7ff, #3a7bd5 60%, #152c6b);
+    box-shadow: 0 0 40px rgba(100, 180, 255, 0.4);
+  }
+
+  main { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { text-align: center; margin-bottom: 18px; }
+  h1 { font-size: 2.2em; margin: 0; color: var(--accent); letter-spacing: 2px; }
+  .hint { margin: 6px 0 0; color: var(--muted); font-size: 1.05em; }
+
+  .status {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    margin: 0 0 16px; flex-wrap: wrap;
+  }
+  .count { font-size: 1.2em; font-weight: 700; }
+  .count b { color: var(--accent); font-size: 1.3em; }
+  .reset {
+    font: inherit; font-weight: 700; font-size: 1em;
+    color: var(--text); background: #1d2a6b;
+    border: 3px solid var(--border); border-radius: 16px;
+    padding: 10px 22px; cursor: pointer;
+  }
+  .reset:hover { border-color: var(--accent); background: #2a3c96; }
+  .reset:focus-visible { outline: 4px solid var(--accent); outline-offset: 3px; }
+
+  .board {
+    background: var(--panel); border: 2px solid var(--border); border-radius: 28px;
+    padding: 24px 16px; backdrop-filter: blur(6px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+  .label { text-align: center; color: var(--muted); font-size: .95em; margin: 0 0 12px; }
+  .holes, .tray { display: grid; justify-content: center; gap: 12px; }
+  .holes { grid-template-columns: repeat(5, var(--cell)); }
+  .tray { grid-template-columns: repeat(4, var(--cell)); gap: 16px 28px; }
+  .divider { height: 2px; margin: 24px 8px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+
+  .hole, .slot { width: var(--cell); height: var(--cell); position: relative; }
+  .hole svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .hole .cavity { fill: #070a24; stroke: #070a24; stroke-width: 8; stroke-linejoin: round;
+    filter: drop-shadow(0 0 0 rgba(0,0,0,0)); transition: filter .2s; }
+  .hole .rim { fill: none; stroke: rgba(150, 180, 255, .45); stroke-width: 3; stroke-dasharray: 6 6; }
+  body.dragging .hole:not(.filled) .rim { stroke: var(--accent); stroke-width: 4; animation: dash 1s linear infinite; }
+  .hole.over:not(.filled) .cavity { filter: drop-shadow(0 0 14px var(--accent)); }
+  @keyframes dash { to { stroke-dashoffset: -24; } }
+  .hole.filled .rim { opacity: 0; }
+
+  .piece {
+    width: var(--cell); height: var(--cell);
+    position: absolute; left: 0; top: 0;
+    cursor: grab; touch-action: none;
+    filter: drop-shadow(0 8px 10px rgba(0,0,0,.55));
+    transition: transform .35s cubic-bezier(.3,1.4,.5,1), filter .2s;
+  }
+  .piece svg { width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; }
+  .piece path { stroke-width: 8; stroke-linejoin: round; }
+  .piece.drag { cursor: grabbing; transition: none; z-index: 50;
+    filter: drop-shadow(0 18px 18px rgba(0,0,0,.6)) brightness(1.12); }
+  .piece.locked { cursor: default; filter: drop-shadow(0 0 12px rgba(61, 220, 151, .8)); animation: glow 1s ease; }
+  .piece.shake { animation: shake .4s; }
+  @keyframes glow { 0% { scale: 1.18; } 100% { scale: 1; } }
+  @keyframes shake { 20%,60% { translate: -10px 0; } 40%,80% { translate: 10px 0; } }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(120px);
+    background: #11163d; border: 3px solid var(--border); border-radius: 20px;
+    padding: 14px 28px; font-size: 1.15em; font-weight: 700; z-index: 60;
+    transition: transform .3s; white-space: nowrap;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.good { border-color: var(--good); }
+  .toast.bad { border-color: var(--bad); }
+
+  .overlay {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    align-items: center; justify-content: center; padding: 16px;
+    background: rgba(3, 4, 20, .75); backdrop-filter: blur(4px);
+  }
+  .overlay.show { display: flex; }
+  .win {
+    background: var(--panel); border: 3px solid var(--accent); border-radius: 28px;
+    padding: 36px 32px; text-align: center; max-width: 520px; width: 100%;
+    animation: pop .5s ease;
+  }
+  .win .rocket { font-size: 5em; display: inline-block; animation: float 2.4s ease-in-out infinite; }
+  .win h2 { font-size: 2em; color: var(--accent); margin: 8px 0; }
+  .win p { color: var(--muted); margin: 0 0 24px; font-size: 1.1em; }
+  .win .reset { font-size: 1.2em; padding: 16px 36px; background: linear-gradient(135deg, #ffd166, #ff9f43); color: #1a1333; border-color: #ffd166; }
+  @keyframes pop { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
+  @keyframes float { 50% { transform: translateY(-14px) rotate(-8deg); } }
+
+  @media (max-width: 640px) {
+    body { font-size: 18px; }
+    .tray { gap: 12px; }
+    .board { padding: 18px 8px; }
+    .planet.p2 { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stars" aria-hidden="true"></canvas>
+<div class="planet p1" aria-hidden="true"></div>
+<div class="planet p2" aria-hidden="true"></div>
+
+<main>
+  <header>
+    <h1>🚀 星際拼圖配對</h1>
+    <p class="hint">用手指按住下方的拼圖，拖到上方<b style="color:var(--accent)">形狀一樣</b>的洞裡</p>
+  </header>
+  <div class="status">
+    <div class="count">已完成 <b id="done">0</b> / 5</div>
+    <button class="reset" id="resetBtn">↻ 重新開始</button>
+  </div>
+  <section class="board">
+    <p class="label">🌌 太空基地的洞</p>
+    <div class="holes" id="holes"></div>
+    <div class="divider"></div>
+    <p class="label">🪐 可拖曳的拼圖（有 3 片是干擾的喔）</p>
+    <div class="tray" id="tray"></div>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<div class="overlay" id="overlay">
+  <div class="win" role="dialog" aria-labelledby="winTitle">
+    <div class="rocket" aria-hidden="true">🛸</div>
+    <h2 id="winTitle">任務完成！</h2>
+    <p>5 塊拼圖全部配對成功<br>太空基地修好了，您真厲害！🌟</p>
+    <button class="reset" id="againBtn">再玩一次</button>
+  </div>
+</div>
+
+<script>
+// 形狀（viewBox 0 0 100 100）
+const SHAPES = {
+  clover:  "M30.1 30.1 A20 20 0 1 1 69.9 30.1 A20 20 0 1 1 69.9 69.9 A20 20 0 1 1 30.1 69.9 A20 20 0 1 1 30.1 30.1Z",
+  star4:   "M50 8 Q60 40 92 50 Q60 60 50 92 Q40 60 8 50 Q40 40 50 8Z",
+  arch:    "M12 88 L12 50 A38 38 0 0 1 88 50 L88 88 Z",
+  blob:    "M30 18 C46 4 64 18 64 36 C66 50 90 52 90 70 C90 88 66 92 50 84 C36 78 14 84 10 66 C6 50 16 28 30 18Z",
+  cross:   "M36 10 H64 V36 H90 V64 H64 V90 H36 V64 H10 V36 H36 Z",
+  // 干擾拼圖
+  wedge:   "M8 82 L8 52 L92 20 L92 82 Z",
+  peanut:  "M28 28 C40 28 44 40 50 40 C56 40 60 28 72 28 C88 28 94 42 94 50 C94 62 86 72 72 72 C60 72 56 60 50 60 C44 60 40 72 28 72 C14 72 6 62 6 50 C6 38 14 28 28 28Z",
+  hexagon: "M28 12 H72 L94 50 L72 88 H28 L6 50 Z"
+};
+const TARGETS = ["clover", "star4", "arch", "blob", "cross"];
+const DECOYS = ["wedge", "peanut", "hexagon"];
+// 每片拼圖像一顆不同的星球
+const COLORS = {
+  clover:  ["#ffe29a", "#f0a53a"],
+  star4:   ["#b8f1ff", "#3a8bd5"],
+  arch:    ["#ffc2a8", "#d4582a"],
+  blob:    ["#d6c2ff", "#7a4fd8"],
+  cross:   ["#b6f5d0", "#2a9d6a"],
+  wedge:   ["#ffd0e4", "#d9487e"],
+  peanut:  ["#e3e7f5", "#7c86a8"],
+  hexagon: ["#fff3b0", "#c7a81f"]
+};
+
+const holesEl = document.getElementById("holes");
+const trayEl = document.getElementById("tray");
+const doneEl = document.getElementById("done");
+const overlay = document.getElementById("overlay");
+const toastEl = document.getElementById("toast");
+let done = 0;
+
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+function pieceSVG(name) {
+  const [c1, c2] = COLORS[name];
+  return `<svg viewBox="0 0 100 100" aria-hidden="true">
+    <defs><radialGradient id="g-${name}" cx="35%" cy="30%" r="80%">
+      <stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>
+    </radialGradient></defs>
+    <path d="${SHAPES[name]}" fill="url(#g-${name})" stroke="url(#g-${name})"/>
+  </svg>`;
+}
+
+function build() {
+  done = 0; doneEl.textContent = 0;
+  overlay.classList.remove("show");
+  holesEl.innerHTML = shuffle(TARGETS).map(n => `
+    <div class="hole" data-shape="${n}">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <path class="cavity" d="${SHAPES[n]}"/>
+        <path class="rim" d="${SHAPES[n]}"/>
+      </svg>
+    </div>`).join("");
+  trayEl.innerHTML = shuffle([...TARGETS, ...DECOYS]).map(n => `
+    <div class="slot"><div class="piece" data-shape="${n}">${pieceSVG(n)}</div></div>`).join("");
+  trayEl.querySelectorAll(".piece").forEach(attachDrag);
+}
+
+function attachDrag(piece) {
+  let sx, sy, overHole = null;
+  const move = e => {
+    piece.style.transform = `translate(${e.clientX - sx}px, ${e.clientY - sy}px) scale(1.08)`;
+    const h = holeAt(piece);
+    if (h !== overHole) { overHole?.classList.remove("over"); overHole = h; h?.classList.add("over"); }
+  };
+  const up = e => {
+    piece.removeEventListener("pointermove", move);
+    piece.removeEventListener("pointerup", up);
+    piece.removeEventListener("pointercancel", up);
+    document.body.classList.remove("dragging");
+    overHole?.classList.remove("over");
+    const hole = overHole; overHole = null;
+    piece.classList.remove("drag");
+    if (hole && hole.dataset.shape === piece.dataset.shape) snap(piece, hole);
+    else goBack(piece, !!hole);
+  };
+  piece.addEventListener("pointerdown", e => {
+    if (piece.classList.contains("locked")) return;
+    e.preventDefault();
+    piece.setPointerCapture(e.pointerId);
+    sx = e.clientX; sy = e.clientY;
+    piece.classList.add("drag");
+    document.body.classList.add("dragging");
+    piece.addEventListener("pointermove", move);
+    piece.addEventListener("pointerup", up);
+    piece.addEventListener("pointercancel", up);
+  });
+}
+
+// 拼圖中心落在洞的範圍內（放寬一點，長輩比較好操作）
+function holeAt(piece) {
+  const r = piece.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  for (const h of holesEl.querySelectorAll(".hole:not(.filled)")) {
+    const b = h.getBoundingClientRect(), pad = b.width * 0.2;
+    if (cx > b.left - pad && cx < b.right + pad && cy > b.top - pad && cy < b.bottom + pad) return h;
+  }
+  return null;
+}
+
+function snap(piece, hole) {
+  hole.classList.add("filled");
+  const slot = piece.parentElement.getBoundingClientRect();
+  const b = hole.getBoundingClientRect();
+  piece.style.transform = `translate(${b.left - slot.left}px, ${b.top - slot.top}px)`;
+  piece.classList.add("locked");
+  setTimeout(() => {
+    hole.appendChild(piece);
+    piece.style.transform = "";
+  }, 350);
+  done++; doneEl.textContent = done;
+  beep(true);
+  if (done === TARGETS.length) {
+    setTimeout(() => overlay.classList.add("show"), 900);
+  } else {
+    toast("🌟 配對正確！", "good");
+  }
+}
+
+function goBack(piece, wrongHole) {
+  piece.style.transform = "";
+  if (wrongHole) {
+    beep(false);
+    toast("再試試看，形狀不太一樣喔 🙂", "bad");
+    setTimeout(() => { piece.classList.add("shake"); setTimeout(() => piece.classList.remove("shake"), 400); }, 350);
+  }
+}
+
+let toastTimer;
+function toast(msg, type) {
+  toastEl.textContent = msg;
+  toastEl.className = `toast show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1600);
+}
+
+let actx;
+function beep(ok) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = "sine";
+    const t = actx.currentTime;
+    if (ok) { o.frequency.setValueAtTime(660, t); o.frequency.setValueAtTime(990, t + .1); }
+    else { o.frequency.setValueAtTime(260, t); o.frequency.setValueAtTime(200, t + .12); }
+    g.gain.setValueAtTime(.15, t); g.gain.exponentialRampToValueAtTime(.001, t + .3);
+    o.connect(g).connect(actx.destination); o.start(t); o.stop(t + .3);
+  } catch (_) {}
+}
+
+document.getElementById("resetBtn").onclick = build;
+document.getElementById("againBtn").onclick = build;
+
+// 星空背景
+(function stars() {
+  const c = document.getElementById("stars"), ctx = c.getContext("2d");
+  let list = [];
+  function resize() {
+    c.width = innerWidth; c.height = innerHeight;
+    list = Array.from({ length: Math.floor(innerWidth * innerHeight / 3500) }, () => ({
+      x: Math.random() * c.width, y: Math.random() * c.height,
+      r: Math.random() * 1.6 + 0.3, t: Math.random() * 6.28, s: Math.random() * 0.02 + 0.005
+    }));
+  }
+  function draw() {
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.fillStyle = "#fff";
+    for (const st of list) {
+      st.t += st.s;
+      ctx.globalAlpha = 0.6 + Math.sin(st.t) * 0.4;
+      ctx.beginPath(); ctx.arc(st.x, st.y, st.r, 0, 6.28); ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  addEventListener("resize", resize);
+  resize(); draw();
+})();
+
+build();
+</script>
+</body>
+</html>
